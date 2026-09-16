@@ -43,7 +43,9 @@
         <circle class="ring-progress" id="ringProgress" cx="120" cy="120" r="110" />
       </svg>
       <div class="dial-center">
-        <div class="clock" id="clock">25:00</div>
+        <div class="clock" id="clock" title="Click the numbers to set a custom time">
+          <span class="seg" id="minVal" contenteditable="true" inputmode="numeric" spellcheck="false">25</span><span class="colon">:</span><span class="seg" id="secVal" contenteditable="true" inputmode="numeric" spellcheck="false">00</span>
+        </div>
         <div class="phase" id="phase">Focus</div>
       </div>
     </div>
