@@ -34,8 +34,8 @@ function render() {
   const m = Math.floor(remaining / 60);
   const s = remaining % 60;
   if (!editing) {
-    minVal.textContent = pad(m);
-    secVal.textContent = pad(s);
+    minVal.value = pad(m);
+    secVal.value = pad(s);
   }
   phase.textContent = currentMode;
   document.title = `${pad(m)}:${pad(s)} — FocusFlow`;
@@ -45,11 +45,17 @@ function render() {
 /* ---------- Completion sound (Web Audio, no files needed) ---------- */
 let audioCtx = null;
 
-function playChime() {
+function unlockAudio() {
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === "suspended") audioCtx.resume();
-    // Three ascending notes for a gentle "ding-ding-ding".
+  } catch (e) {}
+}
+
+function playChime() {
+  try {
+    unlockAudio();
+    if (!audioCtx) return;
     [880, 1108.73, 1318.51].forEach((freq, i) => {
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
@@ -64,7 +70,7 @@ function playChime() {
       osc.stop(start + 0.42);
     });
   } catch (e) {
-    /* Audio not available — the on-screen alert still fires. */
+    /* Audio unavailable — the on-screen alert still fires. */
   }
 }
 
@@ -83,8 +89,19 @@ function tick() {
     }
     render();
     playChime();
-    setTimeout(() => alert("Time's up! Take a break."), 60);
+    const wasFocus = currentMode === "Focus" || currentMode === "Custom";
+    showToast(wasFocus ? "Time's up! Take a break. 🎉" : "Break's over — ready to focus?");
   }
+}
+
+/* ---------- Non-blocking toast ---------- */
+let toastTimer = null;
+function showToast(message) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), 4500);
 }
 
 function start() {
@@ -95,11 +112,7 @@ function start() {
   startLabel.textContent = "Pause";
   startBtn.querySelector(".btn-icon").textContent = "❚❚";
   dial.classList.add("running");
-  // Unlock audio on the first user gesture so the chime can play later.
-  try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === "suspended") audioCtx.resume();
-  } catch (e) {}
+  unlockAudio(); // allow the chime to play later (needs a user gesture)
   timerId = setInterval(tick, 1000);
 }
 
@@ -119,22 +132,23 @@ function reset() {
 }
 
 /* ---------- Editable time ---------- */
-function selectAll(el) {
-  const range = document.createRange();
-  range.selectNodeContents(el);
-  const sel = window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
+function readSegments() {
+  const m = clamp(parseInt(minVal.value, 10) || 0, 0, 99);
+  const s = clamp(parseInt(secVal.value, 10) || 0, 0, 59);
+  let total = m * 60 + s;
+  if (total <= 0) total = 60; // never allow a zero-length timer
+  return total;
 }
 
-function applyTime() {
-  const m = clamp(parseInt(minVal.textContent, 10) || 0, 0, 99);
-  const s = clamp(parseInt(secVal.textContent, 10) || 0, 0, 59);
-  totalSeconds = m * 60 + s;
-  if (totalSeconds <= 0) totalSeconds = 60; // never allow a zero timer
-  remaining = totalSeconds;
-  modeButtons.forEach((b) => b.classList.remove("active"));
-  currentMode = "Custom";
+function commitTime() {
+  const newTotal = readSegments();
+  if (newTotal !== totalSeconds) {
+    totalSeconds = newTotal;
+    remaining = totalSeconds;
+    modeButtons.forEach((b) => b.classList.remove("active"));
+    currentMode = "Custom";
+  }
+  render();
 }
 
 [minVal, secVal].forEach((seg) => {
@@ -146,7 +160,13 @@ function applyTime() {
       return;
     }
     editing = true;
-    selectAll(seg);
+    seg.select();
+  });
+
+  // Keep only digits as the user types (maxlength caps the length).
+  seg.addEventListener("input", () => {
+    const cleaned = seg.value.replace(/\D/g, "");
+    if (cleaned !== seg.value) seg.value = cleaned;
   });
 
   seg.addEventListener("keydown", (e) => {
@@ -158,40 +178,25 @@ function applyTime() {
     if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       e.preventDefault();
       const max = isMin ? 99 : 59;
-      let v = parseInt(seg.textContent, 10) || 0;
+      let v = parseInt(seg.value, 10) || 0;
       v += e.key === "ArrowUp" ? 1 : -1;
       if (v < 0) v = max;
       if (v > max) v = 0;
-      seg.textContent = pad(v);
-      applyTime();
+      seg.value = pad(v);
+      // Live-preview the change while still editing.
+      totalSeconds = readSegments();
+      remaining = totalSeconds;
+      modeButtons.forEach((b) => b.classList.remove("active"));
+      currentMode = "Custom";
+      phase.textContent = currentMode;
       renderRing();
-      selectAll(seg);
-      return;
+      seg.select();
     }
-    const allowed = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab"];
-    if (allowed.includes(e.key)) return;
-    if (!/^[0-9]$/.test(e.key)) {
-      e.preventDefault();
-      return;
-    }
-    // Cap at 2 digits unless some text is selected (which will be replaced).
-    const hasSelection = window.getSelection().toString().length > 0;
-    if (seg.textContent.length >= 2 && !hasSelection) e.preventDefault();
   });
 
   seg.addEventListener("blur", () => {
     editing = false;
-    const m = clamp(parseInt(minVal.textContent, 10) || 0, 0, 99);
-    const s = clamp(parseInt(secVal.textContent, 10) || 0, 0, 59);
-    let newTotal = m * 60 + s;
-    if (newTotal <= 0) newTotal = 60;
-    if (newTotal !== totalSeconds) {
-      totalSeconds = newTotal;
-      remaining = totalSeconds;
-      modeButtons.forEach((b) => b.classList.remove("active"));
-      currentMode = "Custom";
-    }
-    render();
+    commitTime();
   });
 });
 
