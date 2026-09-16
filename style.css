@@ -223,7 +223,7 @@ body {
   opacity: 0.75;
   padding: 0 1px;
   line-height: 1;
-  transform: translateY(-0.08em); /* optically center the colon with the digits */
+  transform: translateY(-0.05em); /* optically center the colon with the digits */
 }
 
 /* Editable affordance only while paused */
